@@ -1,0 +1,388 @@
+{% extends 'trading/base.html' %}
+{% load tz %}
+{% block title %}Admin Console{% endblock %}
+
+{% block content %}
+<style>
+  .welcome-card {
+    margin-bottom: 22px;
+    text-align: center;
+    position: relative;
+  }
+
+  .welcome-card h1 {
+    font-size: 2rem;
+    margin-bottom: 8px;
+    text-shadow: 0 0 14px rgba(0, 255, 255, 0.52);
+  }
+
+  .welcome-card .muted {
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+
+  .admin-top-grid {
+    display: grid;
+    grid-template-columns: minmax(300px, 1.1fr) minmax(280px, 0.9fr);
+    gap: 18px;
+    margin-bottom: 18px;
+  }
+
+  .snapshot-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(110px, 1fr));
+    gap: 10px;
+  }
+
+  .snapshot-metric {
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+    padding: 9px 10px;
+  }
+
+  .snapshot-metric span {
+    display: block;
+    color: var(--muted);
+    font-size: 0.67rem;
+    margin-bottom: 4px;
+  }
+
+  .snapshot-metric strong {
+    font-size: 0.96rem;
+  }
+
+  .market-line {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.5;
+  }
+
+  .admin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 18px;
+  }
+
+  .admin-grid h3 {
+    margin-bottom: 12px;
+    color: var(--accent);
+    font-size: 1rem;
+    text-transform: uppercase;
+  }
+
+  .admin-links {
+    display: grid;
+    gap: 10px;
+  }
+
+  .admin-links .btn {
+    width: 100%;
+    font-family: inherit;
+    font-size: inherit;
+  }
+
+  .small-note {
+    color: var(--muted);
+    font-size: 0.74rem;
+    margin-top: 8px;
+  }
+
+  @media (max-width: 700px) {
+    .welcome-card h1 {
+      font-size: 1.4rem;
+    }
+
+    .admin-top-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .snapshot-grid {
+      grid-template-columns: repeat(2, minmax(110px, 1fr));
+    }
+  }
+</style>
+
+<div class="row">
+  <div class="col">
+    <div class="card welcome-card">
+      <h1>Welcome, {{ request.user.username }}!</h1>
+      <p class="muted">Your trading dashboard is ready. Execute system operations with precision and speed.</p>
+    </div>
+
+    <div class="admin-top-grid">
+      <div class="card">
+        <h3>System Snapshot</h3>
+        <div class="snapshot-grid">
+          <div class="snapshot-metric">
+            <span>Traders</span>
+            <strong>{{ trader_count }}</strong>
+          </div>
+          <div class="snapshot-metric">
+            <span>Market Makers</span>
+            <strong>{{ market_maker_count }}</strong>
+          </div>
+          <div class="snapshot-metric">
+            <span>Active Limits</span>
+            <strong>{{ active_limit_orders }}</strong>
+          </div>
+          <div class="snapshot-metric">
+            <span>Stop Orders Open</span>
+            <strong>{{ active_stoploss_orders }}</strong>
+          </div>
+          <div class="snapshot-metric">
+            <span>Trades Today</span>
+            <strong>{{ trades_today }}</strong>
+          </div>
+          <div class="snapshot-metric">
+            <span>Total Trades</span>
+            <strong>{{ total_trades }}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Market Status</h3>
+        <div class="market-line">Best Bid: {% if best_bid_price is not None %}{{ best_bid_price|floatformat:2 }} ({{ best_bid_disclosed }}){% else %}-{% endif %}</div>
+        <div class="market-line">Best Ask: {% if best_ask_price is not None %}{{ best_ask_price|floatformat:2 }} ({{ best_ask_disclosed }}){% else %}-{% endif %}</div>
+        <div class="market-line">Spread: {% if spread is not None %}{{ spread|floatformat:2 }}{% else %}-{% endif %}</div>
+        <div class="market-line">Last Trade: {% if last_trade %}{{ last_trade.price }} · {{ last_trade.quantity }} @ {{ last_trade.timestamp|localtime|date:"H:i:s" }}{% else %}-{% endif %}</div>
+      </div>
+    </div>
+
+    <div class="admin-grid">
+      <div class="card">
+        <h3>User Management</h3>
+        <div class="admin-links">
+          <a class="btn" href="{% url 'bulk_user_upload' %}">Bulk User Upload</a>
+          <a class="btn" href="{% url 'bulk_user_delete' %}">Bulk User Delete</a>
+        </div>
+        <p class="small-note">Manage onboarding and cleanup of trader/market-maker accounts.</p>
+      </div>
+
+      <div class="card">
+        <h3>Order Management</h3>
+        <div class="admin-links">
+          <a class="btn" href="{% url 'orderbook' %}">View Live Orderbook</a>
+          <button id="togglePauseBtn" class="btn">Pause Market</button>
+        </div>
+        <p class="small-note">Inspect liquidity, adjust order state, and correct specific records.</p>
+      </div>
+ <!-- --------------------------------------------------------------------------------------------- -->
+  <!-- Seed Liquidity Form -->
+      <div class="card">
+        <h3>Seed Liquidity</h3>
+        <form id="seedLiquidityForm">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+            <div>
+              <label for="seed_bid_price" class="small-note">Bid Price</label>
+              <input type="number" step="0.01" min="0.01" id="seed_bid_price" name="bid_price" required style="width:100%;padding:8px;border-radius:6px;">
+            </div>
+            <div>
+              <label for="seed_bid_qty" class="small-note">Bid Qty</label>
+              <input type="number" min="1" id="seed_bid_qty" name="bid_qty" required style="width:100%;padding:8px;border-radius:6px;">
+            </div>
+            <div>
+              <label for="seed_ask_price" class="small-note">Ask Price</label>
+              <input type="number" step="0.01" min="0.01" id="seed_ask_price" name="ask_price" required style="width:100%;padding:8px;border-radius:6px;">
+            </div>
+            <div>
+              <label for="seed_ask_qty" class="small-note">Ask Qty</label>
+              <input type="number" min="1" id="seed_ask_qty" name="ask_qty" required style="width:100%;padding:8px;border-radius:6px;">
+            </div>
+          </div>
+          <button type="submit" class="btn">Seed Book</button>
+        </form>
+        <p class="small-note" id="seedLiquidityStatus"></p>
+      </div>
+<!-- --------------------------------------------------------------------------------------------- -->
+
+      <div class="card">
+        <h3>Security</h3>
+        <div class="admin-links">
+          <a class="btn" href="{% url 'password_reset' %}">Reset Password</a>
+          <a class="btn btn-danger" href="{% url 'clear_database' %}">Clear Orderbook</a>
+        </div>
+        <p class="small-note">Use destructive operations carefully; clear orderbook removes all orders and trades.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row" style="margin-top:18px;">
+  <div class="col">
+    <div class="card">
+      <h3>Recent Trades</h3>
+      <div style="overflow:auto;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:8px;color:var(--muted)">Buyer</th>
+              <th style="text-align:left;padding:8px;color:var(--muted)">Seller</th>
+              <th style="text-align:left;padding:8px;color:var(--muted)">Price</th>
+              <th style="text-align:left;padding:8px;color:var(--muted)">Quantity</th>
+              <th style="text-align:left;padding:8px;color:var(--muted)">Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in recent_trades %}
+            <tr>
+              <td style="padding:8px">{{ t.buyer.username }}</td>
+              <td style="padding:8px">{{ t.seller.username }}</td>
+              <td style="padding:8px">{{ t.price }}</td>
+              <td style="padding:8px">{{ t.quantity }}</td>
+              <td style="padding:8px">{{ t.timestamp|localtime|date:"Y-m-d H:i:s" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" style="padding:8px">No recent trades</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NEW PENDING STOP ORDERS TABLE -->
+<div class="row" style="margin-top:18px;">
+  <div class="col">
+    <div class="card">
+      <h3>Pending Stop Orders (System-Wide)</h3>
+      <div style="overflow:auto;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:8px;color:var(--muted)">User</th>
+              <th style="text-align:left;padding:8px;color:var(--muted)">Role</th>
+              <th style="text-align:left;padding:8px;color:var(--muted)">Action</th>
+              <th style="text-align:left;padding:8px;color:var(--muted)">Trigger Price</th>
+              <th style="text-align:left;padding:8px;color:var(--muted)">Limit Price</th>
+              <th style="text-align:left;padding:8px;color:var(--muted)">Quantity (Disclosed)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for order in pending_stop_orders %}
+            <tr>
+              <td style="padding:8px">{{ order.user.username }}</td>
+              <td style="padding:8px">{{ order.user_role }}</td>
+              <td style="padding:8px; font-weight:bold; color: {% if order.order_type == 'BUY' %}#28a745{% else %}#dc3545{% endif %};">
+                {{ order.order_type }}
+              </td>
+              <td style="padding:8px">₹{{ order.target_price }}</td>
+              <td style="padding:8px">{% if order.price %}₹{{ order.price }}{% else %}MARKET{% endif %}</td>
+              <td style="padding:8px">{{ order.quantity }} ({{ order.disclosed }})</td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="6" style="padding:8px; text-align:center; color:var(--muted);">No pending stop orders in the system.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const btn = document.getElementById('togglePauseBtn');
+  const statusUrl = "{% url 'get_market_status' %}";
+  const toggleUrl = "{% url 'toggle_market_pause' %}";
+
+  function getCsrfToken(){
+    const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
+  }
+
+  async function loadStatus(){
+    try{
+      const res = await fetch(statusUrl, {credentials: 'same-origin'});
+      const j = await res.json();
+      btn.textContent = j.paused ? 'Resume Market' : 'Pause Market';
+      btn.dataset.paused = String(!!j.paused);
+    }catch(e){
+      btn.textContent = 'Pause Market';
+      btn.dataset.paused = 'false';
+    }
+  }
+
+  btn.addEventListener('click', async function(){
+    const paused = btn.dataset.paused === 'true';
+    const action = paused ? 'resume' : 'pause';
+    try{
+      const res = await fetch(toggleUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCsrfToken(),
+        },
+        body: JSON.stringify({action: action, message: ''})
+      });
+      const raw = await res.text();
+      let j = {};
+      try {
+        j = raw ? JSON.parse(raw) : {};
+      } catch (parseError) {
+        j = { success: false, message: raw };
+      }
+
+      if (!res.ok) {
+        throw new Error(j.message || `HTTP ${res.status}`);
+      }
+
+      if(j.success){
+        btn.textContent = j.paused ? 'Resume Market' : 'Pause Market';
+        btn.dataset.paused = String(!!j.paused);
+      }else{
+        alert('Failed: ' + (j.message || ''));
+      }
+    }catch(e){
+      alert(e && e.message ? e.message : 'Error toggling market status');
+    }
+  });
+
+  loadStatus();
+
+  const seedForm = document.getElementById('seedLiquidityForm');
+  const seedStatus = document.getElementById('seedLiquidityStatus');
+  const seedUrl = "{% url 'seed_liquidity' %}";
+
+  seedForm.addEventListener('submit', async function(e){
+    e.preventDefault();
+    const payload = {
+      bid_price: document.getElementById('seed_bid_price').value,
+      bid_qty: document.getElementById('seed_bid_qty').value,
+      ask_price: document.getElementById('seed_ask_price').value,
+      ask_qty: document.getElementById('seed_ask_qty').value,
+    };
+    seedStatus.textContent = 'Seeding...';
+    try{
+      const res = await fetch(seedUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCsrfToken(),
+        },
+        body: JSON.stringify(payload)
+      });
+      const raw = await res.text();
+      let j = {};
+      try { j = raw ? JSON.parse(raw) : {}; } catch(parseError) { j = { success:false, message: raw }; }
+
+      if(j.success){
+        seedStatus.textContent = j.message;
+        seedForm.reset();
+      } else {
+        seedStatus.textContent = 'Failed: ' + (j.message || `HTTP ${res.status}`);
+      }
+    }catch(err){
+      seedStatus.textContent = 'Error: ' + (err && err.message ? err.message : 'request failed');
+    }
+  });
+});
+</script>
+{% endblock %}
