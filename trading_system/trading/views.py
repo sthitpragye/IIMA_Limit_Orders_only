@@ -1712,12 +1712,12 @@ def trader_home(request):
             messages.error(request, "Disclosed Quantity cannot be less than 10% of Quantity.")
             return redirect('trader_home')
 
-        # Inventory check for SELL orders (skip for stop orders)
-        if order_type == 'SELL' and stoploss_order != 'YES':
-            user.refresh_from_db()
-            if user.inventory < quantity:
-                messages.error(request, f'Insufficient inventory. Required: {quantity} units, Available: {user.inventory} units.')
-                return redirect('trader_home')
+        # # Inventory check for SELL orders (skip for stop orders)
+        # if order_type == 'SELL' and stoploss_order != 'YES':
+        #     user.refresh_from_db()
+        #     if user.inventory < quantity:
+        #         messages.error(request, f'Insufficient inventory. Required: {quantity} units, Available: {user.inventory} units.')
+        #         return redirect('trader_home')
 
         try:
             if stoploss_order == 'YES':
